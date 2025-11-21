@@ -1,0 +1,125 @@
+# Dit is een Python script dat de logica van de WhatsApp bot implementeert.
+# Dit script simuleert de "Cron Job" die elke zondag zou draaien.
+#
+# Vereisten:
+# 1. Installeer de Firebase Admin SDK: pip install firebase-admin
+# 2. Download je Firebase Service Account sleutel (JSON-bestand) en sla deze op.
+#    (Ga naar Projectinstellingen -> Serviceaccounts -> Nieuwe privésleutel genereren)
+
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import firestore
+import os
+from datetime import datetime
+
+# --- CONFIGURATIE ---
+# LET OP: Vervang 'pad/naar/je/serviceAccountKey.json' door het daadwerkelijke pad
+# naar jouw Firebase JSON-bestand.
+SERVICE_ACCOUNT_KEY_PATH = 'serviceAccountKey.json'
+COLLECTION_NAME = 'cleaning_schedule'
+DOCUMENT_ID = 'rotation_state'
+
+# De lijst met schoonmaakploegen uit je rooster
+INITIAL_PEOPLE = [
+    "Tijn en Jorn", 
+    "Mees en Lynn", 
+    "Lean H en Luna", 
+    "Syb en Iza", 
+    "Jense en Frank", 
+    "Jort en Tygo", 
+    "Maik en Hidde", 
+    "Roan en Lean JH", 
+    "Tijs en Tian"
+]
+
+def initialize_firebase():
+    """Initialiseert de Firebase Admin SDK."""
+    try:
+        if not os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
+             print(f"FOUT: Het bestand '{SERVICE_ACCOUNT_KEY_PATH}' is niet gevonden.")
+             print("Zorg ervoor dat je de Service Account sleutel hebt gedownload en het pad correct is.")
+             return None
+             
+        cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
+        firebase_admin.initialize_app(cred)
+        print("Firebase is succesvol geïnitialiseerd.")
+        return firestore.client()
+    except Exception as e:
+        print(f"Fout bij het initialiseren van Firebase: {e}")
+        return None
+
+def determine_and_send_message(db):
+    """
+    De hoofdlogica: Leest de staat, bepaalt de schoonmaker, werkt de staat bij en
+    genereert het WhatsApp bericht.
+    """
+    doc_ref = db.collection(COLLECTION_NAME).document(DOCUMENT_ID)
+
+    try:
+        # 1. Huidige status ophalen
+        doc = doc_ref.get()
+        if doc.exists:
+            state = doc.to_dict()
+            current_index = state.get('currentIndex', 0)
+            people = state.get('people', INITIAL_PEOPLE)
+            
+            # Controleer of de teamslijst leeg is
+            if not people:
+                print("FOUT: De lijst met mensen is leeg. Kan geen schoonmaker kiezen.")
+                return
+
+        else:
+            # Document bestaat niet, initialiseer met de startgegevens
+            state = {
+                'people': INITIAL_PEOPLE,
+                'currentIndex': 0,
+                'lastRunTimestamp': 0
+            }
+            doc_ref.set(state)
+            current_index = 0
+            people = INITIAL_PEOPLE
+            print("Document was leeg en is geïnitialiseerd.")
+
+        # Zorg ervoor dat de index binnen de grenzen valt
+        index_to_use = current_index % len(people)
+        
+        # Bepaal de volgende schoonmaker
+        next_cleaner = people[index_to_use]
+        
+        # Genereer het bericht (dit zou je via een WhatsApp API versturen)
+        message = (
+            f"🚨 Schoonmaak Alert! Deze week is het de beurt aan: *{next_cleaner}*! \n\n"
+            f"Zorg dat alles vóór dinsdag is gedaan. \n"
+            f"Taken: flesjes opruimen, glas wegbrengen, tafels afnemen, vegen/dweilen. "
+            f"Succes! 🧼"
+        )
+        
+        print("\n--- GESIMULEERD WHATSAPP BERICHT ---")
+        print(f"VERZONDEN NAAR GROEP: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(message)
+        print("--------------------------------------\n")
+
+        # 2. Nieuwe status berekenen en bijwerken
+        next_new_index = (index_to_use + 1) % len(people)
+        new_timestamp = int(datetime.now().timestamp() * 1000) # Milliseconden
+
+        doc_ref.update({
+            'currentIndex': next_new_index,
+            'lastRunTimestamp': new_timestamp
+        })
+        
+        print(f"Database bijgewerkt. Volgende ploeg is index {next_new_index} ({people[next_new_index]}).")
+
+    except Exception as e:
+        print(f"Er is een fout opgetreden tijdens het uitvoeren van de bot: {e}")
+        
+if __name__ == '__main__':
+    # Voer dit script uit om de rotatie te simuleren
+    db = initialize_firebase()
+    if db:
+        determine_and_send_message(db)
+    else:
+        print("Kan de bot niet starten vanwege Firebase fout.")
+
+# Om dit echt te laten werken met WhatsApp, zou je hier de API-aanroep van Twilio, Meta,
+# of een andere provider toevoegen om 'message' daadwerkelijk te versturen.
